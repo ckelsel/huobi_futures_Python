@@ -14,6 +14,7 @@ import time
 import asyncio
 import copy
 from collections import deque
+from datetime import datetime, timedelta
 
 from alpha.utils import logger
 from alpha.utils.websocket import Websocket
@@ -96,6 +97,23 @@ class HuobiUsdtSwapMarket(Websocket):
                         "sub": channel
                     }
                     await self.ws.send_json(kline)
+            elif ch == "kline2":
+                for symbol in self._symbols:
+                    channel = self._symbol_to_channel(symbol, "kline")
+                    if not channel:
+                        continue
+                    now=datetime.now()
+                    ts1 = int(datetime.timestamp(now))
+
+                    one_day=now-timedelta(hours=1)
+                    ts2 = int(datetime.timestamp(one_day))
+                    data = {
+    "req": "market.BTC-USDT.kline.1min",
+    "id": "id4",
+    "from": 1579247342,
+    "to": 1579247342
+                    }
+                    await self.ws.send_json(data)
             elif ch == "orderbook":
                 for symbol in self._symbols:
                     channel = self._symbol_to_channel(symbol, "depth")
@@ -127,6 +145,8 @@ class HuobiUsdtSwapMarket(Websocket):
             if data.get("ping"):
                 hb_msg = {"pong": data.get("ping")}
                 await self.ws.send_json(hb_msg)
+            if data.get("rep"):
+                await self.process_hist_kline(data)
             return
 
         symbol = self._c_to_s[channel]
@@ -150,7 +170,7 @@ class HuobiUsdtSwapMarket(Websocket):
             channel_type: channel name, kline / ticker / depth.
         """
         if channel_type == "kline":
-            channel = "market.{s}.kline.1min".format(s=symbol.upper())
+            channel = "market.{s}.kline.5min".format(s=symbol.upper())
         elif channel_type == "depth":
             channel = "market.{s}.depth.step6".format(s=symbol.upper())
         elif channel_type == "trade":
@@ -161,6 +181,30 @@ class HuobiUsdtSwapMarket(Websocket):
         self._c_to_s[channel] = symbol
         return channel
     
+    async def process_hist_kline(self, data):
+        """ process kline data
+        """
+        # channel = data.get("ch")
+        # symbol = self._c_to_s[channel]
+        # d = data.get("tick")
+        # info = {
+        #     "platform": self._platform,
+        #     "symbol": symbol,
+        #     "open": "%.8f" % d["open"],
+        #     "high": "%.8f" % d["high"],
+        #     "low": "%.8f" % d["low"],
+        #     "close": "%.8f" % d["close"],
+        #     "volume": "%.8f" % d["amount"],
+        #     "timestamp": int(data.get("ts")),
+        #     "kline_type": MARKET_TYPE_KLINE
+        # }
+        # kline = Kline(**info)
+        # self._klines.append(kline)
+        # SingleTask.run(self._kline_update_callback, copy.copy(kline))
+
+        # logger.debug("symbol:", symbol, "kline:", kline, caller=self)
+        logger.info(data)
+
     async def process_kline(self, data):
         """ process kline data
         """

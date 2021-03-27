@@ -8,10 +8,12 @@ Email: andyjoe318@gmail.com
 """
 # 策略实现
 import time
+import pandas as pd
 from alpha import const
 from alpha.utils import tools
 from alpha.utils import logger
 from alpha.config import config
+from alpha.tradeema import TradeEMA
 from alpha.market import Market
 from alpha.trade import Trade
 from alpha.order import Order
@@ -54,48 +56,52 @@ class MyStrategy:
         self.last_ask_price = 0 # 上次的卖出价格
         self.last_orderbook_timestamp = 0 # 上次的orderbook时间戳
 
-        self.raw_symbol = self.symbol.split('-')[0]
+        # self.raw_symbol = self.symbol.split('-')[0]
 
         self.ask1_price = 0
         self.bid1_price = 0
         self.ask1_volume = 0
         self.bid1_volume = 0
 
+        self.tradeema = TradeEMA()
 
-        # 交易模块
-        cc = {
-            "strategy": self.strategy,
-            "platform": self.platform,
-            "symbol": self.symbol,
-            "contract_type": self.contract_type,
-            "account": self.account,
-            "access_key": self.access_key,
-            "secret_key": self.secret_key,
-            "host": self.host,
-            "wss": self.wss,
-            "order_update_callback": self.on_event_order_update,
-            "asset_update_callback": self.on_event_asset_update,
-            "position_update_callback": self.on_event_position_update,
-            "init_success_callback": self.on_event_init_success_callback,
-        }
-        self.trader = Trade(**cc)
+        # # 交易模块
+        # cc = {
+        #     "strategy": self.strategy,
+        #     "platform": self.platform,
+        #     "symbol": self.symbol,
+        #     "contract_type": self.contract_type,
+        #     "account": self.account,
+        #     "access_key": self.access_key,
+        #     "secret_key": self.secret_key,
+        #     "host": self.host,
+        #     "wss": self.wss,
+        #     "order_update_callback": self.on_event_order_update,
+        #     "asset_update_callback": self.on_event_asset_update,
+        #     "position_update_callback": self.on_event_position_update,
+        #     "init_success_callback": self.on_event_init_success_callback,
+        # }
+        # self.trader = Trade(**cc)
 
         # 行情模块
-        cc = {
-            "platform": self.platform,
-            "symbols": [self.symbol],
-            "channels": self.channels,
-            "orderbook_length": self.orderbook_length,
-            "orderbooks_length": self.orderbooks_length,
-            "klines_length": self.klines_length,
-            "trades_length": self.trades_length,
-            "wss": self.market_wss,
-            "orderbook_update_callback": self.on_event_orderbook_update,
-            "kline_update_callback": self.on_event_kline_update,
-            "trade_update_callback": self.on_event_trade_update
-        }
-        self.market = Market(**cc)
-                
+        
+        for s in self.symbol:
+            logger.info(s)
+            cc = {
+                "platform": self.platform,
+                "symbols": [s],
+                "channels": self.channels,
+                "orderbook_length": self.orderbook_length,
+                "orderbooks_length": self.orderbooks_length,
+                "klines_length": self.klines_length,
+                "trades_length": self.trades_length,
+                "wss": self.market_wss,
+                "orderbook_update_callback": self.on_event_orderbook_update,
+                "kline_update_callback": self.on_event_kline_update,
+                "trade_update_callback": self.on_event_trade_update
+            }
+            market = Market(**cc)
+
         # 60秒执行1次
         LoopRunTask.register(self.on_ticker, 10)
 
@@ -104,10 +110,10 @@ class MyStrategy:
         """
         ts_diff = int(time.time()*1000) - self.last_orderbook_timestamp
         if ts_diff > self.orderbook_invalid_seconds * 1000:
-            logger.warn("received orderbook timestamp exceed:", self.strategy, self.symbol, ts_diff, caller=self)
+            logger.debug("received orderbook timestamp exceed:", self.strategy, self.symbol, ts_diff, caller=self)
             return
-        await self.cancel_orders()
-        await self.place_orders()
+        # await self.cancel_orders()
+        # await self.place_orders()
 
     async def cancel_orders(self):
         """  取消订单
@@ -119,7 +125,7 @@ class MyStrategy:
                 logger.error(self.strategy,"cancel future order error! error:", errors, caller=self)
             else:
                 logger.info(self.strategy,"cancel future order:", order_nos, caller=self)
-    
+
     async def place_orders(self):
         """ 下单
         """
@@ -136,7 +142,7 @@ class MyStrategy:
         if self.trader.assets and self.trader.assets.assets.get(self.raw_symbol):
             # 开空单
             price = round(self.bid1_price + 0.1, 1)
-            volume = int(float(self.trader.assets.assets.get(self.raw_symbol).get("free")) / price / self.contract_size) 
+            volume = int(float(self.trader.assets.assets.get(self.raw_symbol).get("free")) / price / self.contract_size)
             if volume >= 1:
                 quantity = - volume #  空1张
                 action = ORDER_ACTION_SELL
@@ -168,32 +174,34 @@ class MyStrategy:
     async def on_event_order_update(self, order: Order):
         """ 订单状态更新
         """
-        logger.info("order update:", order, caller=self)
+        logger.debug("order update:", order, caller=self)
 
     async def on_event_asset_update(self, asset: Asset):
         """ 资产更新
         """
-        logger.info("asset update:", asset, caller=self)
+        logger.debug("asset update:", asset, caller=self)
 
     async def on_event_position_update(self, position: Position):
         """ 仓位更新
         """
-        logger.info("position update:", position, caller=self)
-    
+        logger.debug("position update:", position, caller=self)
+
     async def on_event_kline_update(self, kline: Kline):
         """ kline更新
             self.market.klines 是最新的kline组成的队列，记录的是历史N次kline的数据。
             本回调所传的kline是最新的单次kline。
         """
-        logger.debug("kline update:", kline, caller=self)
-    
+        # logger.info("kline update:", kline, caller=self)
+        self.tradeema.on_klines_update(kline)
+
+
     async def on_event_trade_update(self, trade: MarketTrade):
         """ market trade更新
             self.market.trades 是最新的逐笔成交组成的队列，记录的是历史N次trade的数据。
             本回调所传的trade是最新的单次trade。
         """
         logger.debug("trade update:", trade, caller=self)
-    
+
     async def on_event_init_success_callback(self, success: bool, error: Error, **kwargs):
         """ init success callback
         """

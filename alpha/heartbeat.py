@@ -41,7 +41,7 @@ class HeartBeat(object):
         # 打印心跳次数
         if self._print_interval > 0:
             if self._count % int(self._print_interval*200) == 0:
-                logger.info("do server heartbeat, count:", self._count, caller=self)
+                logger.debug("do server heartbeat, count:", self._count, caller=self)
 
         # 设置下一次心跳回调
         asyncio.get_event_loop().call_later(self._interval, self.ticker)
